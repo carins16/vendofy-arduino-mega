@@ -2,8 +2,8 @@
 #include <ArduinoJson.h>
 #include <Adafruit_Fingerprint.h>
 
-SoftwareSerial NodeMCU(13,12);
-SoftwareSerial FingerprintScanner(10, 11);
+SoftwareSerial NodeMCU(13,12); // rx, tx
+SoftwareSerial FingerprintScanner(10, 11); // rx, tx
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&FingerprintScanner);
 
 uint8_t id;
@@ -20,10 +20,10 @@ bool isTimerOn = false;
 void setup() {
   // initialize ports
   Serial.begin(9600);
-  
+
   NodeMCU.begin(9600);
   FingerprintScanner.begin(57600);
-  
+
   if (finger.verifyPassword()) {
     Serial.println("Found fingerprint sensor!");
   } else {
@@ -66,7 +66,7 @@ uint8_t getFingerprintID() {
   } else if (p == FINGERPRINT_PACKETRECIEVEERR) { 
     Serial.println("Communication error"); return p; 
   } else if (p == FINGERPRINT_NOTFOUND) { 
-    send_message("SIGNIN", "ERROR_MESSAGE", "Did not find a match! Try Again.");
+    send_message("SIGNIN_ERROR", "Did not find a match! Please try again.");
     timer = 50;
     Serial.println("Did not find a match"); return p; 
   } else { 
@@ -79,8 +79,15 @@ uint8_t getFingerprintID() {
   Serial.print(" with confidence of ");
   Serial.println(finger.confidence);
 
-  timer = 1;
-  send_message("SIGNIN", "SIGN_IN_SUCCESS", (String)finger.fingerID);
+  timer = 50;
+  isTimerOn = false;
+
+  isVerifyFinger = false;
+  isFingerListening = false;
+
+  isNodemcuListening = true;
+
+  send_fingerprint_id("SIGNIN_SUCCESS", (String)finger.fingerID);
 
   return finger.fingerID;
 }
@@ -125,6 +132,9 @@ uint8_t getFingerprintEnroll() {
 
   int p = -1;
   Serial.print("Waiting for valid finger to enroll as #"); Serial.println(id);
+
+  int ctr = 50;
+
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
     switch (p) {
@@ -133,6 +143,17 @@ uint8_t getFingerprintEnroll() {
       case FINGERPRINT_PACKETRECIEVEERR: Serial.println("Communication error"); break;
       case FINGERPRINT_IMAGEFAIL: Serial.println("Imaging error"); break;
       default: Serial.println("Unknown error"); break;
+    }
+
+    ctr--;
+
+    if (ctr <= 0) {
+      isEnrollFinger = false;
+      isFingerListening = false;
+      isNodemcuListening = true;
+
+      send_actions("ENROLL_CLOSE");
+      return 1;
     }
   }
 
@@ -148,22 +169,41 @@ uint8_t getFingerprintEnroll() {
   }
   
   Serial.println("Remove finger");
+  send_message("ENROLL_INFO", "Remove your finger.");
   delay(2000);
+
   p = 0;
   while (p != FINGERPRINT_NOFINGER) {
     p = finger.getImage();
+    Serial.print("*");
   }
   Serial.print("ID "); Serial.println(id);
+
   p = -1;
   Serial.println("Place same finger again");
+  send_message("ENROLL_INFO", "Place same finger again.");
+
+  ctr = 50;
+
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
     switch (p) {
       case FINGERPRINT_OK: Serial.println("Image taken"); break;
-      case FINGERPRINT_NOFINGER: Serial.print("*"); break;
+      case FINGERPRINT_NOFINGER: Serial.print("#"); break;
       case FINGERPRINT_PACKETRECIEVEERR: Serial.println("Communication error"); break;
       case FINGERPRINT_IMAGEFAIL: Serial.println("Imaging error"); break;
       default: Serial.println("Unknown error"); break;
+    }
+
+    ctr--;
+
+    if (ctr <= 0) {
+      isEnrollFinger = false;
+      isFingerListening = false;
+      isNodemcuListening = true;
+
+      send_actions("ENROLL_CLOSE");
+      return 1;
     }
   }
 
@@ -186,7 +226,9 @@ uint8_t getFingerprintEnroll() {
   } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
     Serial.println("Communication error"); return p;
   } else if (p == FINGERPRINT_ENROLLMISMATCH) {
-    Serial.println("Fingerprints did not match"); return p;
+    Serial.println("Fingerprints did not match"); 
+    send_message("ENROLL_ERROR", "Fingerprints did not match.");
+    return p;
   } else {
     Serial.println("Unknown error"); return p;
   }   
@@ -194,11 +236,15 @@ uint8_t getFingerprintEnroll() {
   Serial.print("ID "); Serial.println(id);
   p = finger.storeModel(id);
   if (p == FINGERPRINT_OK) {
-    Serial.println("Stored!-----------");
-    isVerifyFinger = false;
+    Serial.println("Stored!");
+
     isEnrollFinger = false;
     isFingerListening = false;
     isNodemcuListening = true;
+
+    send_fingerprint_id("ENROLL_SUCCESS", (String)id);
+    return 1;
+
   } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
     Serial.println("Communication error"); return p;
   } else if (p == FINGERPRINT_BADLOCATION) {
@@ -207,7 +253,8 @@ uint8_t getFingerprintEnroll() {
     Serial.println("Error writing to flash"); return p;
   } else {
     Serial.println("Unknown error"); return p;
-  }   
+  }
+
 }
 
 void test_code(){
@@ -242,6 +289,7 @@ void nodemcu_listener() {
       isVerifyFinger = true;
       isEnrollFinger = false;
 
+      timer = 50;
       isTimerOn = true;
 
     } else {
@@ -268,28 +316,44 @@ void verify_finger_countdown() {
   }
 
   if (timer <= 0) {
-    isTimerOn = false;
     timer = 50;
+    isTimerOn = false;
 
     isVerifyFinger = false;
-    isEnrollFinger = false;
     isFingerListening = false;
 
     isNodemcuListening = true;
 
-    send_message("SIGNIN", "CLOSE_SIGN_IN", "Signing In has timeout.");
+    send_actions("SIGNIN_CLOSE");
   }
 
 }
 
-void send_message(String type, String status, String msg) {
+void send_message(String type, String msg) {
 
   DynamicJsonDocument doc(1024);
 
   doc["type"] = type;
-  doc["status"] = status;
   doc["msg"] = msg;
 
+  serializeJson(doc, NodeMCU);
+}
+
+void send_fingerprint_id(String type, String fid) {
+
+  DynamicJsonDocument doc(1024);
+
+  doc["type"] = type;
+  doc["fid"] = fid;
+
+  serializeJson(doc, NodeMCU);
+}
+
+void send_actions(String type) {
+  
+  DynamicJsonDocument doc(1024);
+
+  doc["type"] = type;
   serializeJson(doc, NodeMCU);
 }
 
@@ -302,4 +366,5 @@ void loop() {
     // Serial.println("Listening Fingerprint");
   }
   verify_finger_countdown();
+  
 }
