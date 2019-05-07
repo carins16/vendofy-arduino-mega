@@ -1,6 +1,6 @@
 {
     "board": "arduino:avr:mega",
-    "port": "COM5",
+    "port": "COM10",
     "sketch": "vendofy-arduino-mega.ino",
     "output": "../build",
     "configuration": "cpu=atmega2560"
