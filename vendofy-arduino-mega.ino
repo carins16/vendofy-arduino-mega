@@ -4,7 +4,7 @@
 #include <Servo.h>
 
 Servo ServoLeft, ServoRight;
-SoftwareSerial NodeMCU(13,12); // rx, tx
+SoftwareSerial NodeMCU(13, 12);            // rx, tx
 SoftwareSerial FingerprintScanner(10, 11); // rx, tx
 // intitiate fingerprint
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&FingerprintScanner);
@@ -24,17 +24,24 @@ volatile int coins = 0, checkcoins = 0;
 
 const byte interruptPinBills = 2;
 const byte interruptPinCoins = 3;
+const byte BillRelayPin = 52;
+const byte CoinRelayPin = 50;
 
-const int tiltPin = 46; //tilt pin
+const int tiltPin = 46;       //tilt pin or vibrator
+const int PIRpin = 7;         // choose the input pin (for PIR sensor)
+int pirState = LOW;           // we start, assuming no motion detected
+int PIRval = 0;               // variable for reading the pin status
+
 const int alarmRelayPin = 47; // alarm relay pin
-const int lockRelayPin = 48; // lock relay pin
+const int lockRelayPin = 48;  // lock relay pin
 String alarmStatus = "";
 
 // signing limited time
 int timer = 50;
 bool isTimerOn = false;
 
-void setup() {
+void setup()
+{
   // initialize Serial for testing
   Serial.begin(9600);
 
@@ -49,25 +56,35 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(interruptPinBills), BillAcceptor, RISING);
   delay(100);
 
+  pinMode(BillRelayPin, OUTPUT);
+  digitalWrite(BillRelayPin, HIGH); // LOW = ON : HIGH = OFF
+  pinMode(CoinRelayPin, OUTPUT);
+  digitalWrite(CoinRelayPin, HIGH); // LOW = ON : HIGH = OFF
+
+  pinMode(PIRpin, INPUT); // declare sensor as input
   pinMode(lockRelayPin, OUTPUT);
-  digitalWrite(lockRelayPin, LOW); // turn lock as default
+  digitalWrite(lockRelayPin, LOW); // LOW = LOCK : HIGH = UNLOCK
   pinMode(alarmRelayPin, OUTPUT);
-  digitalWrite(alarmRelayPin, LOW); // turn off alarm as default
+  digitalWrite(alarmRelayPin, HIGH); //HIGH = alarm Off : LOW = alarm ON
 
-  pinMode(tiltPin, INPUT); //Tilt Switch
-  digitalWrite(tiltPin, LOW); //Tilt Switch default state
+  pinMode(tiltPin, INPUT);    //Tilt Switch
+  digitalWrite(tiltPin, HIGH); //Tilt Switch default state
 
-  if (finger.verifyPassword()) {
+  if (finger.verifyPassword())
+  {
     Serial.println("Found fingerprint sensor!");
-  } else {
+  }else{
     Serial.println("Did not find fingerprint sensor");
-    while (1) { delay(1); }
-  }
+    while (1)
+    {
+      delay(1);
+    }
+  } 
 
   finger.getTemplateCount(); // get fingerprint count structure
-  Serial.println("Sensor contains " + (String)finger.templateCount + " templates"); 
+  Serial.println("Sensor contains " + (String)finger.templateCount + " templates");
   Serial.println("Waiting for valid finger...");
-  checkcoins =- 5;
+  checkcoins = -5;
   delay(2000);
 }
 
@@ -75,40 +92,75 @@ void setup() {
   ==================== Functions for Fingerprint ====================
 */
 
-uint8_t verify_fingerprint() { // verification of fingerprint
+uint8_t verify_fingerprint()
+{ // verification of fingerprint
 
   uint8_t p = finger.getImage();
-  switch (p) {
-    case FINGERPRINT_OK: Serial.println("Image taken"); break;
-    case FINGERPRINT_NOFINGER: Serial.println("No finger detected"); return p;
-    case FINGERPRINT_PACKETRECIEVEERR: Serial.println("Communication error"); return p;
-    case FINGERPRINT_IMAGEFAIL: Serial.println("Imaging error"); return p;
-    default: Serial.println("Unknown error"); return p;
+  switch (p)
+  {
+  case FINGERPRINT_OK:
+    Serial.println("Image taken");
+    break;
+  case FINGERPRINT_NOFINGER:
+    Serial.println("No finger detected");
+    return p;
+  case FINGERPRINT_PACKETRECIEVEERR:
+    Serial.println("Communication error");
+    return p;
+  case FINGERPRINT_IMAGEFAIL:
+    Serial.println("Imaging error");
+    return p;
+  default:
+    Serial.println("Unknown error");
+    return p;
   }
 
   // OK success!
   p = finger.image2Tz();
-  switch (p) {
-    case FINGERPRINT_OK: Serial.println("Image converted"); break;
-    case FINGERPRINT_IMAGEMESS: Serial.println("Image too messy"); return p;
-    case FINGERPRINT_PACKETRECIEVEERR: Serial.println("Communication error"); return p;
-    case FINGERPRINT_FEATUREFAIL: Serial.println("Could not find fingerprint features"); return p;
-    case FINGERPRINT_INVALIDIMAGE: Serial.println("Could not find fingerprint features"); return p;
-    default: Serial.println("Unknown error"); return p;
+  switch (p)
+  {
+  case FINGERPRINT_OK:
+    Serial.println("Image converted");
+    break;
+  case FINGERPRINT_IMAGEMESS:
+    Serial.println("Image too messy");
+    return p;
+  case FINGERPRINT_PACKETRECIEVEERR:
+    Serial.println("Communication error");
+    return p;
+  case FINGERPRINT_FEATUREFAIL:
+    Serial.println("Could not find fingerprint features");
+    return p;
+  case FINGERPRINT_INVALIDIMAGE:
+    Serial.println("Could not find fingerprint features");
+    return p;
+  default:
+    Serial.println("Unknown error");
+    return p;
   }
 
   // OK converted!
   p = finger.fingerFastSearch();
-  if (p == FINGERPRINT_OK) { 
-    Serial.println("Found a print match!"); 
-  } else if (p == FINGERPRINT_PACKETRECIEVEERR) { 
-    Serial.println("Communication error"); return p; 
-  } else if (p == FINGERPRINT_NOTFOUND) { 
+  if (p == FINGERPRINT_OK)
+  {
+    Serial.println("Found a print match!");
+  }
+  else if (p == FINGERPRINT_PACKETRECIEVEERR)
+  {
+    Serial.println("Communication error");
+    return p;
+  }
+  else if (p == FINGERPRINT_NOTFOUND)
+  {
     send_message("SIGNIN_ERROR", "Did not find a match! Please try again.");
     timer = 50;
-    Serial.println("Did not find a match"); return p; 
-  } else { 
-    Serial.println("Unknown error"); return p; 
+    Serial.println("Did not find a match");
+    return p;
+  }
+  else
+  {
+    Serial.println("Unknown error");
+    return p;
   }
 
   // found a match!
@@ -130,48 +182,69 @@ uint8_t verify_fingerprint() { // verification of fingerprint
   return finger.fingerID;
 }
 
-uint8_t readnumber(void) { // get template of the fingerprint database then add one
+uint8_t readnumber(void)
+{ // get template of the fingerprint database then add one
   uint8_t num = finger.templateCount + 1;
-  while (num == 0) {
-    while (! Serial.available());
+  while (num == 0)
+  {
+    while (!Serial.available())
+      ;
     num = Serial.parseInt();
   }
   return num;
 }
 
-void enroll_fingerprint(){ // registration of fingerprint
-  
+void enroll_fingerprint()
+{ // registration of fingerprint
+
   Serial.println("Ready to enroll a fingerprint!");
   Serial.println("Please type in the ID # (from 1 to 1000) you want to save this finger as...");
   id = readnumber();
-  if (id == 0) {// ID #0 not allowed, try again!
-      return;
+  if (id == 0)
+  { // ID #0 not allowed, try again!
+    return;
   }
   Serial.print("Enrolling ID #");
   Serial.println(id);
-  while (!  getFingerprintEnroll() );
+  while (!getFingerprintEnroll())
+    ;
 }
 
-uint8_t getFingerprintEnroll() {
+uint8_t getFingerprintEnroll()
+{
 
   int p = -1;
-  Serial.print("Waiting for valid finger to enroll as #"); Serial.println(id);
+  Serial.print("Waiting for valid finger to enroll as #");
+  Serial.println(id);
 
   int ctr = 50;
 
-  while (p != FINGERPRINT_OK) {
+  while (p != FINGERPRINT_OK)
+  {
     p = finger.getImage();
-    switch (p) {
-      case FINGERPRINT_OK: Serial.println("Image taken"); break;
-      case FINGERPRINT_NOFINGER: Serial.print("."); break;
-      case FINGERPRINT_PACKETRECIEVEERR: Serial.println("Communication error"); break;
-      case FINGERPRINT_IMAGEFAIL: Serial.println("Imaging error"); break;
-      default: Serial.println("Unknown error"); break;
+    switch (p)
+    {
+    case FINGERPRINT_OK:
+      Serial.println("Image taken");
+      break;
+    case FINGERPRINT_NOFINGER:
+      Serial.print(".");
+      break;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      Serial.println("Communication error");
+      break;
+    case FINGERPRINT_IMAGEFAIL:
+      Serial.println("Imaging error");
+      break;
+    default:
+      Serial.println("Unknown error");
+      break;
     }
 
     ctr--;
 
-    if (ctr <= 0) {
+    if (ctr <= 0)
+    {
       isEnrollFinger = false;
       isFingerListening = false;
       isNodemcuListening = true;
@@ -183,25 +256,40 @@ uint8_t getFingerprintEnroll() {
 
   // OK success!
   p = finger.image2Tz(1);
-  switch (p) {
-    case FINGERPRINT_OK: Serial.println("Image converted"); break;
-    case FINGERPRINT_IMAGEMESS: Serial.println("Image too messy"); return p;
-    case FINGERPRINT_PACKETRECIEVEERR: Serial.println("Communication error"); return p;
-    case FINGERPRINT_FEATUREFAIL: Serial.println("Could not find fingerprint features"); return p;
-    case FINGERPRINT_INVALIDIMAGE: Serial.println("Could not find fingerprint features"); return p;
-    default: Serial.println("Unknown error"); return p;
+  switch (p)
+  {
+  case FINGERPRINT_OK:
+    Serial.println("Image converted");
+    break;
+  case FINGERPRINT_IMAGEMESS:
+    Serial.println("Image too messy");
+    return p;
+  case FINGERPRINT_PACKETRECIEVEERR:
+    Serial.println("Communication error");
+    return p;
+  case FINGERPRINT_FEATUREFAIL:
+    Serial.println("Could not find fingerprint features");
+    return p;
+  case FINGERPRINT_INVALIDIMAGE:
+    Serial.println("Could not find fingerprint features");
+    return p;
+  default:
+    Serial.println("Unknown error");
+    return p;
   }
-  
+
   Serial.println("Remove finger");
   send_message("ENROLL_INFO", "Remove your finger.");
   delay(2000);
 
   p = 0;
-  while (p != FINGERPRINT_NOFINGER) {
+  while (p != FINGERPRINT_NOFINGER)
+  {
     p = finger.getImage();
     Serial.print("*");
   }
-  Serial.print("ID "); Serial.println(id);
+  Serial.print("ID ");
+  Serial.println(id);
 
   p = -1;
   Serial.println("Place same finger again");
@@ -209,19 +297,32 @@ uint8_t getFingerprintEnroll() {
 
   ctr = 50;
 
-  while (p != FINGERPRINT_OK) {
+  while (p != FINGERPRINT_OK)
+  {
     p = finger.getImage();
-    switch (p) {
-      case FINGERPRINT_OK: Serial.println("Image taken"); break;
-      case FINGERPRINT_NOFINGER: Serial.print("#"); break;
-      case FINGERPRINT_PACKETRECIEVEERR: Serial.println("Communication error"); break;
-      case FINGERPRINT_IMAGEFAIL: Serial.println("Imaging error"); break;
-      default: Serial.println("Unknown error"); break;
+    switch (p)
+    {
+    case FINGERPRINT_OK:
+      Serial.println("Image taken");
+      break;
+    case FINGERPRINT_NOFINGER:
+      Serial.print("#");
+      break;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      Serial.println("Communication error");
+      break;
+    case FINGERPRINT_IMAGEFAIL:
+      Serial.println("Imaging error");
+      break;
+    default:
+      Serial.println("Unknown error");
+      break;
     }
 
     ctr--;
 
-    if (ctr <= 0) {
+    if (ctr <= 0)
+    {
       isEnrollFinger = false;
       isFingerListening = false;
       isNodemcuListening = true;
@@ -233,33 +334,59 @@ uint8_t getFingerprintEnroll() {
 
   // OK success!
   p = finger.image2Tz(2);
-  switch (p) {
-    case FINGERPRINT_OK: Serial.println("Image converted"); break;
-    case FINGERPRINT_IMAGEMESS: Serial.println("Image too messy"); return p;
-    case FINGERPRINT_PACKETRECIEVEERR: Serial.println("Communication error"); return p;
-    case FINGERPRINT_FEATUREFAIL: Serial.println("Could not find fingerprint features"); return p;
-    case FINGERPRINT_INVALIDIMAGE: Serial.println("Could not find fingerprint features"); return p;
-    default: Serial.println("Unknown error"); return p;
+  switch (p)
+  {
+  case FINGERPRINT_OK:
+    Serial.println("Image converted");
+    break;
+  case FINGERPRINT_IMAGEMESS:
+    Serial.println("Image too messy");
+    return p;
+  case FINGERPRINT_PACKETRECIEVEERR:
+    Serial.println("Communication error");
+    return p;
+  case FINGERPRINT_FEATUREFAIL:
+    Serial.println("Could not find fingerprint features");
+    return p;
+  case FINGERPRINT_INVALIDIMAGE:
+    Serial.println("Could not find fingerprint features");
+    return p;
+  default:
+    Serial.println("Unknown error");
+    return p;
   }
-  
+
   // OK converted!
-  Serial.print("Creating model for #");  Serial.println(id);
-  
+  Serial.print("Creating model for #");
+  Serial.println(id);
+
   p = finger.createModel();
-  if (p == FINGERPRINT_OK) { Serial.println("Prints matched!");
-  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
-    Serial.println("Communication error"); return p;
-  } else if (p == FINGERPRINT_ENROLLMISMATCH) {
-    Serial.println("Fingerprints did not match"); 
+  if (p == FINGERPRINT_OK)
+  {
+    Serial.println("Prints matched!");
+  }
+  else if (p == FINGERPRINT_PACKETRECIEVEERR)
+  {
+    Serial.println("Communication error");
+    return p;
+  }
+  else if (p == FINGERPRINT_ENROLLMISMATCH)
+  {
+    Serial.println("Fingerprints did not match");
     send_message("ENROLL_ERROR", "Fingerprints did not match.");
     return p;
-  } else {
-    Serial.println("Unknown error"); return p;
-  }   
-  
-  Serial.print("ID "); Serial.println(id);
+  }
+  else
+  {
+    Serial.println("Unknown error");
+    return p;
+  }
+
+  Serial.print("ID ");
+  Serial.println(id);
   p = finger.storeModel(id);
-  if (p == FINGERPRINT_OK) {
+  if (p == FINGERPRINT_OK)
+  {
     Serial.println("Stored!");
 
     isEnrollFinger = false;
@@ -268,39 +395,53 @@ uint8_t getFingerprintEnroll() {
 
     send_fingerprint_id("ENROLL_SUCCESS", (String)id);
     return 1;
-
-  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
-    Serial.println("Communication error"); return p;
-  } else if (p == FINGERPRINT_BADLOCATION) {
-    Serial.println("Could not store in that location"); return p;
-  } else if (p == FINGERPRINT_FLASHERR) {
-    Serial.println("Error writing to flash"); return p;
-  } else {
-    Serial.println("Unknown error"); return p;
   }
-
+  else if (p == FINGERPRINT_PACKETRECIEVEERR)
+  {
+    Serial.println("Communication error");
+    return p;
+  }
+  else if (p == FINGERPRINT_BADLOCATION)
+  {
+    Serial.println("Could not store in that location");
+    return p;
+  }
+  else if (p == FINGERPRINT_FLASHERR)
+  {
+    Serial.println("Error writing to flash");
+    return p;
+  }
+  else
+  {
+    Serial.println("Unknown error");
+    return p;
+  }
 }
 
 /*
   ==================== Functions for Serial Listener ====================
 */
 
-void nodemcu_listener() { // listener for nodemcu
+void nodemcu_listener()
+{ // listener for nodemcu
   NodeMCU.listen();
-  if (NodeMCU.available() > 0) {
+  if (NodeMCU.available() > 0)
+  {
     DynamicJsonDocument doc(1024);
     deserializeJson(doc, NodeMCU);
     serializeJsonPretty(doc, Serial);
 
-    if (doc["type"].as<String>() == "ENROLL_FINGERPRINT") {
+    if (doc["type"].as<String>() == "ENROLL_FINGERPRINT")
+    {
 
       isFingerListening = true;
       isNodemcuListening = false;
 
       isEnrollFinger = true;
       isVerifyFinger = false;
-
-    } else if (doc["type"].as<String>() == "VERIFY_FINGERPRINT") {
+    }
+    else if (doc["type"].as<String>() == "VERIFY_FINGERPRINT")
+    {
 
       isFingerListening = true;
       isNodemcuListening = false;
@@ -310,56 +451,80 @@ void nodemcu_listener() { // listener for nodemcu
 
       timer = 50;
       isTimerOn = true;
-
-    } else if (doc["type"].as<String>() == "ACTIVATE_BILL_COIN") {
-
+    }
+    else if (doc["type"].as<String>() == "ACTIVATE_BILL_COIN")
+    {
+      digitalWrite(BillRelayPin, LOW);
+      digitalWrite(CoinRelayPin, LOW);
+      checkcoins = -15;
       Serial.println("Currency Acceptors Activated.");
-
-    } else if (doc["type"].as<String>() == "DEACTIVATE_BILL_COIN") {
-
+    }
+    else if (doc["type"].as<String>() == "DEACTIVATE_BILL_COIN")
+    {
+      digitalWrite(BillRelayPin, HIGH);
+      digitalWrite(CoinRelayPin, HIGH);
       Serial.println("Currency Accecptors Deactivated.");
+    }
+    else if (doc["type"].as<String>() == "PURCHASE_ITEMS")
+    {
 
-    } else if (doc["type"].as<String>() == "PURCHASE_ITEMS") {
-
-      for (int i = 0; i < doc["size"]; i++) {
+      for (int i = 0; i < doc["size"]; i++)
+      {
         Serial.println(doc["items"][i].as<String>());
         slotSelections(doc["items"][i]);
         send_actions("FALL_ITEMS");
       }
-    } else if (doc["type"].as<String>() == "ALARM_OFF") {
-      digitalWrite(alarmRelayPin, LOW);
+    }
+    else if (doc["type"].as<String>() == "ALARM_OFF")
+    {
+      //digitalWrite(alarmRelayPin, LOW);
       alarmStatus = "ALARM_OFF";
-    } else if (doc["type"].as<String>() == "ALARM_ON") {
-      digitalWrite(alarmRelayPin, HIGH);
+    }
+    else if (doc["type"].as<String>() == "ALARM_ON")
+    {
+      //digitalWrite(alarmRelayPin, HIGH);
       alarmStatus = "ALARM_ON";
-    } else if (doc["type"].as<String>() == "LOCK_OFF") {
+    }
+    else if (doc["type"].as<String>() == "LOCK_OFF")
+    {
       digitalWrite(lockRelayPin, LOW);
-    } else if (doc["type"].as<String>() == "LOCK_ON") {
+    }
+    else if (doc["type"].as<String>() == "LOCK_ON")
+    {
       digitalWrite(lockRelayPin, HIGH);
-    } else {
+    }
+    else
+    {
       isNodemcuListening = true;
       isFingerListening = false;
     }
   }
 }
 
-void fingerprint_listener() { // listener for fingerprint
+void fingerprint_listener()
+{ // listener for fingerprint
   FingerprintScanner.listen();
-  if (isVerifyFinger) {
+  if (isVerifyFinger)
+  {
     verify_fingerprint();
-  } else if (isEnrollFinger) {
+  }
+  else if (isEnrollFinger)
+  {
     enroll_fingerprint();
   }
 }
 
-void verify_finger_countdown() { // countdown for signing in
+void verify_finger_countdown()
+{ // countdown for signing in
 
-  if (isTimerOn) {
+  if (isTimerOn)
+  {
     timer = timer - 1;
     Serial.println("Time Left: " + (String)timer);
   }
 
-  if (timer <= 0) {
+  if (timer <= 0)
+  {
     timer = 50;
     isTimerOn = false;
 
@@ -370,14 +535,13 @@ void verify_finger_countdown() { // countdown for signing in
 
     send_actions("SIGNIN_CLOSE");
   }
-
 }
-
 
 /*
   ==================== Function for data transmission with WebSockets ====================
 */
-void send_cash(String type, int cash) {
+void send_cash(String type, int cash)
+{
 
   DynamicJsonDocument doc(1024);
 
@@ -387,7 +551,8 @@ void send_cash(String type, int cash) {
   serializeJson(doc, NodeMCU);
 }
 
-void send_message(String type, String msg) {
+void send_message(String type, String msg)
+{
 
   DynamicJsonDocument doc(1024);
 
@@ -397,7 +562,8 @@ void send_message(String type, String msg) {
   serializeJson(doc, NodeMCU);
 }
 
-void send_fingerprint_id(String type, String fid) {
+void send_fingerprint_id(String type, String fid)
+{
 
   DynamicJsonDocument doc(1024);
 
@@ -407,8 +573,9 @@ void send_fingerprint_id(String type, String fid) {
   serializeJson(doc, NodeMCU);
 }
 
-void send_actions(String type) {
-  
+void send_actions(String type)
+{
+
   DynamicJsonDocument doc(1024);
 
   doc["type"] = type;
@@ -419,92 +586,120 @@ void send_actions(String type) {
   ==================== Function for Currency Acceptors ====================
 */
 
-void CoinSlotAcceptor() {
-  if (digitalRead(interruptPinCoins) == LOW) {
+void CoinSlotAcceptor()
+{
+  if (digitalRead(interruptPinCoins) == LOW)
+  {
     checkcoins++;
     send_message("CURRENCY_INFO", (String)checkcoins);
   }
 }
 
-void BillAcceptor() {
-  if (digitalRead(interruptPinBills) == LOW) {
+void BillAcceptor()
+{
+  if (digitalRead(interruptPinBills) == LOW)
+  {
     checkbills++;
     send_message("CURRENCY_INFO", (String)checkbills);
   }
 }
 
-void CoinChecker(){
+void CoinChecker()
+{
 
-  if ((checkcoins >= 1) && (checkcoins <= 2)) {
+  if ((checkcoins >= 1) && (checkcoins <= 2))
+  {
     coins = 1;
     send_cash("ADD_CASH", coins);
     Serial.println(coins);
     coins = 0;
     checkcoins = 0;
-  } else if ((checkcoins >= 3) && (checkcoins <= 6)) {
+  }
+  else if ((checkcoins >= 3) && (checkcoins <= 6))
+  {
     coins = 5;
     send_cash("ADD_CASH", coins);
     Serial.println(coins);
     coins = 0;
     checkcoins = 0;
-  } else if (checkcoins > 8) {
+  }
+  else if (checkcoins > 8)
+  {
     coins = 10;
     send_cash("ADD_CASH", coins);
     Serial.println(coins);
     coins = 0;
     checkcoins = 0;
-  } else if (checkcoins < 0) {
+  }
+  else if (checkcoins < 0)
+  {
     Serial.println(coins);
     coins = 0;
     checkcoins = 0;
   }
 }
 
-void BillChecker(){
+void BillChecker()
+{
 
-  if ((checkbills >= 18) && (checkbills < 30)) {
+  if ((checkbills >= 18) && (checkbills < 30))
+  {
     bills = 20;
     send_cash("ADD_CASH", bills);
     Serial.println(bills);
     bills = 0;
     checkbills = 0;
-  } else if (checkbills > 90) {
+  }
+  else if (checkbills > 90)
+  {
     bills = 100;
     send_cash("ADD_CASH", bills);
     Serial.println(bills);
     bills = 0;
     checkbills = 0;
   }
-
 }
+
 
 /*
   ==================== Function for Servos ====================
 */
 
-void slotSelections(int slotsOn) {
+void slotSelections(int slotsOn)
+{
 
-  if (slotsOn == 1) {
+  if (slotsOn == 1)
+  {
     Serial.println("ONE");
     spinServo(1);
-  } else if (slotsOn == 2) {
+  }
+  else if (slotsOn == 2)
+  {
     Serial.println("TWO");
     spinServo(2);
-  } else if (slotsOn == 3) {
+  }
+  else if (slotsOn == 3)
+  {
     Serial.println("THREE");
     spinServo(3);
-  } else if (slotsOn == 4) {
+  }
+  else if (slotsOn == 4)
+  {
     Serial.println("FOUR");
     spinServo(4);
-  } else {
+  }
+  else
+  {
     Serial.println("No more order left");
     slotsOn = 0;
   }
   delay(2000);
 }
 
-void spinServo(int Slotnumber) {
-  switch (Slotnumber) {
+void spinServo(int Slotnumber)
+{
+  switch (Slotnumber)
+  {
   case 1:
     ServoLeft.attach(30);
     ServoRight.attach(31);
@@ -535,53 +730,91 @@ void spinServo(int Slotnumber) {
   Serial.println("servo Spins");
 }
 
-void tilt_sensor() {
-
+void tilt_sensor()
+{
   //Serial.println(digitalRead(tiltPin));
-  if (digitalRead(tiltPin) == HIGH) {
-    digitalWrite(alarmRelayPin, HIGH); //turn the alarm off
+  if (digitalRead(tiltPin) == HIGH)
+  {
+    digitalWrite(alarmRelayPin, LOW); //HIGH = alarm Off : LOW = alarm ON
     send_actions("ALARM_ON");
-  } else if(alarmStatus == "ALARM_OFF") {                                   ////if tilt switch breakover
-    digitalWrite(alarmRelayPin, LOW); //turn alarm led on
+    Serial.println("ALARM_ON");
+  }
+  else if (alarmStatus == "ALARM_OFF")
+  {                                   ////if tilt switch breakover
+    digitalWrite(alarmRelayPin, HIGH); //turn alarm led on
     send_actions("ALARM_LOW");
+    Serial.println("ALARM_LOW");
     alarmStatus = "";
-  }else if(alarmStatus == "ALARM_ON"){
-    digitalWrite(alarmRelayPin, HIGH); //turn the alarm off
+  }
+  else if (alarmStatus == "ALARM_ON")
+  {
+    digitalWrite(alarmRelayPin, LOW); //turn the alarm off
     send_actions("ALARM_ON");
+    Serial.println("ALARM_ON");
   }
 }
 
-void RunCodeInMillis(){
+void PIRsensor()
+{
+
+  PIRval = digitalRead(PIRpin); // read input value
+  if (PIRval == HIGH)
+  { // check if the input is HIGH
+    if (pirState == LOW)
+    { //ON
+      Serial.println("Motion detected!");
+      pirState = HIGH;
+    }
+  }
+  else
+  {
+    if (pirState == HIGH)
+    { //OFF
+      Serial.println("Motion ended!");
+      pirState = LOW;
+    }
+  }
+}
+void RunCodeInMillis()
+{
   static unsigned long timer = millis();
   static int deciSeconds1 = 0, deciSeconds2 = 0;
 
-  if (millis() - timer >= 100) {
+  if (millis() - timer >= 100)
+  {
     timer += 50;
 
     CoinSlotAcceptor();
     BillAcceptor();
 
-    if (deciSeconds1 >= checkbills * 1.35) {
+    if (deciSeconds1 >= checkbills * 1.35)
+    {
       BillChecker();
       deciSeconds1 = 0;
-    } if (deciSeconds2 >= checkcoins * 3) {
+    }
+    if (deciSeconds2 >= checkcoins * 3)
+    {
       CoinChecker();
       deciSeconds2 = 0;
     }
 
     deciSeconds1++;
     deciSeconds2++;
-    
-    tilt_sensor();
 
+    tilt_sensor();
+    PIRsensor();
   }
 }
 
-void loop() {
-  if (isNodemcuListening) {
+void loop()
+{
+  if (isNodemcuListening)
+  {
     nodemcu_listener();
     // Serial.println("Listening NodeMCU");
-  } else if (isFingerListening) {
+  }
+  else if (isFingerListening)
+  {
     fingerprint_listener();
     // Serial.println("Listening Fingerprint");
   }
