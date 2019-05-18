@@ -762,6 +762,7 @@ void PIRsensor()
   { // check if the input is HIGH
     if (pirState == LOW)
     { //ON
+      send_actions("PIR");
       Serial.println("Motion detected!");
       pirState = HIGH;
     }
