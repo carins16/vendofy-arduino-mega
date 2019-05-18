@@ -50,10 +50,12 @@ void setup()
   FingerprintScanner.begin(57600);
   delay(100);
   pinMode(interruptPinCoins, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(interruptPinCoins), CoinSlotAcceptor, RISING);
+  //attachInterrupt(digitalPinToInterrupt(interruptPinCoins), CoinSlotAcceptor, RISING);
+  detachInterrupt(digitalPinToInterrupt(interruptPinCoins));
   delay(100);
   pinMode(interruptPinBills, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(interruptPinBills), BillAcceptor, RISING);
+  //attachInterrupt(digitalPinToInterrupt(interruptPinBills), BillAcceptor, RISING);
+  detachInterrupt(digitalPinToInterrupt(interruptPinBills));
   delay(100);
 
   pinMode(BillRelayPin, OUTPUT);
@@ -63,7 +65,7 @@ void setup()
 
   pinMode(PIRpin, INPUT); // declare sensor as input
   pinMode(lockRelayPin, OUTPUT);
-  digitalWrite(lockRelayPin, LOW); // LOW = LOCK : HIGH = UNLOCK
+  digitalWrite(lockRelayPin, HIGH); // LOW = UNLOCK : HIGH = LOCK
   pinMode(alarmRelayPin, OUTPUT);
   digitalWrite(alarmRelayPin, HIGH); //HIGH = alarm Off : LOW = alarm ON
 
@@ -456,13 +458,22 @@ void nodemcu_listener()
     {
       digitalWrite(BillRelayPin, LOW);
       digitalWrite(CoinRelayPin, LOW);
-      checkcoins = -15;
+      attachInterrupt(digitalPinToInterrupt(interruptPinCoins), CoinSlotAcceptor, RISING);
+      attachInterrupt(digitalPinToInterrupt(interruptPinBills), BillAcceptor, RISING);
+      delay(200);
+      checkcoins = -5;
+      delay(200);
+      checkcoins = -5;
       Serial.println("Currency Acceptors Activated.");
     }
     else if (doc["type"].as<String>() == "DEACTIVATE_BILL_COIN")
     {
       digitalWrite(BillRelayPin, HIGH);
       digitalWrite(CoinRelayPin, HIGH);
+      detachInterrupt(digitalPinToInterrupt(interruptPinCoins));
+      detachInterrupt(digitalPinToInterrupt(interruptPinBills));
+      delay(200);
+      checkcoins = -5;
       Serial.println("Currency Accecptors Deactivated.");
     }
     else if (doc["type"].as<String>() == "PURCHASE_ITEMS")
@@ -477,13 +488,8 @@ void nodemcu_listener()
     }
     else if (doc["type"].as<String>() == "ALARM_OFF")
     {
-      //digitalWrite(alarmRelayPin, LOW);
+      digitalWrite(alarmRelayPin, HIGH);
       alarmStatus = "ALARM_OFF";
-    }
-    else if (doc["type"].as<String>() == "ALARM_ON")
-    {
-      //digitalWrite(alarmRelayPin, HIGH);
-      alarmStatus = "ALARM_ON";
     }
     else if (doc["type"].as<String>() == "LOCK_OFF")
     {
@@ -722,7 +728,7 @@ void spinServo(int Slotnumber)
 
   ServoLeft.write(0);  // rotate
   ServoRight.write(0); // rotate
-  delay(1300);
+  delay(1200);
   ServoLeft.write(90); // stop
   ServoLeft.detach();
   ServoRight.write(90); // stop
@@ -803,7 +809,7 @@ void RunCodeInMillis()
     deciSeconds2++;
 
     tilt_sensor();
-    PIRsensor();
+    //PIRsensor();
   }
 }
 
