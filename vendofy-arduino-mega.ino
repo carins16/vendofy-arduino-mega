@@ -747,16 +747,10 @@ void tilt_sensor()
   }
   else if (alarmStatus == "ALARM_OFF")
   {                                   ////if tilt switch breakover
-    digitalWrite(alarmRelayPin, HIGH); //turn alarm led on
+    digitalWrite(alarmRelayPin, HIGH); //turn alarm off
     send_actions("ALARM_LOW");
     Serial.println("ALARM_LOW");
     alarmStatus = "";
-  }
-  else if (alarmStatus == "ALARM_ON")
-  {
-    digitalWrite(alarmRelayPin, LOW); //turn the alarm off
-    send_actions("ALARM_ON");
-    Serial.println("ALARM_ON");
   }
 }
 
