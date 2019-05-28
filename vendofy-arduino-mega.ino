@@ -81,8 +81,9 @@ void setup()
     {
       delay(1);
     }
-  } 
+  }
 
+  //finger.emptyDatabase(); //Erase Data
   finger.getTemplateCount(); // get fingerprint count structure
   Serial.println("Sensor contains " + (String)finger.templateCount + " templates");
   Serial.println("Waiting for valid finger...");
@@ -186,6 +187,7 @@ uint8_t verify_fingerprint()
 
 uint8_t readnumber(void)
 { // get template of the fingerprint database then add one
+  finger.getTemplateCount();
   uint8_t num = finger.templateCount + 1;
   while (num == 0)
   {
